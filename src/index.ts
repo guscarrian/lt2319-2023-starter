@@ -4,9 +4,8 @@ import { speechstate, Settings, Hypothesis } from "speechstate";
 const azureCredentials = {
   endpoint:
     "https://northeurope.api.cognitive.microsoft.com/sts/v1.0/issuetoken",
-  key: "",
+  key: "9cd3cbcc05da4e198c3ba6b680d52ec4",
 };
-
 
 const settings: Settings = {
   azureCredentials: azureCredentials,
@@ -19,7 +18,28 @@ const settings: Settings = {
 interface DMContext {
   spstRef?: any;
   lastResult?: Hypothesis[];
+  favColor?: string;
+  favFood?: string;
+  respCheck?: string;
+  breathCheck?: string;
+  cprCheck?: string;
 }
+
+// helper functions
+const say =
+  (text: string) =>
+  ({ context }) => {
+    context.spstRef.send({
+      type: "SPEAK",
+      value: { utterance: text },
+    });
+  };
+const listen =
+  () =>
+  ({ context }) =>
+    context.spstRef.send({
+      type: "LISTEN",
+    });
 
 // ChatGPT invocation
 async function fetchFromChatGPT(prompt: string, max_tokens: number) {
@@ -27,7 +47,7 @@ async function fetchFromChatGPT(prompt: string, max_tokens: number) {
   myHeaders.append(
     "Authorization",
     //"Bearer <it is a secret shhh>",
-    "Bearer "
+    "Bearer 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"
   );
   myHeaders.append("Content-Type", "application/json");
   const raw = JSON.stringify({
@@ -48,106 +68,52 @@ async function fetchFromChatGPT(prompt: string, max_tokens: number) {
     body: raw,
     redirect: "follow",
   })
-    .then((response) => response.json())
-    .then((response) => response.choices[0].message.content);
+  .then((response) => response.json())
+  .then((response) => {
+    console.log(response.choices[0].message.content);  // logging the response to console
+    return response.choices[0].message.content;
+  });
 
   return response;
 }
 
 
-
-// helper functions
-const say =
-  (text: string) =>
-  ({ context }) => {
-    context.spstRef.send({
-      type: "SPEAK",
-      value: { utterance: text },
-    });
-  };
-const listen =
-  () =>
-  ({ context }) =>
-    context.spstRef.send({
-      type: "LISTEN",
-    });
-
-
+//const grammar = {
+//  "blablabla": {
+//    entities: ["element_entity"]
+//  },
+//}
 
 const grammar = {
-  "the chemical element": {
-    entities: ["element_entity"]
-  },
-  "i want to know the atomic number": {
-    entities: ["atomicNumber_entity"]
-  },
-  "can you tell me the atomic number": {
-    entities: ["atomicNumber_entity"]
-  },
-  "the atomic number": {
-    entities: ["atomicNumber_entity"]
-  },
-  "the atomic weight": {
-    entities: ["atomicWeight_entity"]
-  },
-  "the melting point": {
-    entities: ["meltingPoint_entity"]
-  },
-  "the boiling point": {
-    entities: ["boilingPoint_entity"]
-  },
-  "the electron configuration": {
-    entities: ["electronConfig_entity"]
-  },
-  "yes": {
-    entities: ["affirmative_entity"]
-  },
-  "no": {
-    entities: ["negative_entity"]
-  },
-  "what is it used for": {
-    entities: ["usage_entity"]
-  }
-  // The reason to have a list of entities was because I was trying
-  //to handle several entities in a shot, as in:
-  //"can you tell me the atomic number and the atomic weight": {
-  //  entities: ["atomicNumber_entity", "atomicWeight_entity"]
-  //}
+  affirmative: ["yes", "yeah", "he's breathing", "she's breathing", "I think so", "is reponsive", "is responding", "I have training", "I'm trained"], //"I do"
+  negative: ["no", "not breathing", "isn't breathing", "no pulse", "I do not think so", "I don't think so", "not responding", "not responsive", "I don't have training", "I'm a beginner", "never done it"],
+  next_step: ["next", "ready"]
 }
 
-// works well with grammar above
-const checkEntityInGrammar = (entity: string, inputSentence: string) => {
-  const cleanedInput = inputSentence.toLowerCase().replace(/\?$/, '');
-  console.log('Input Sentence: ', cleanedInput);
-  if (cleanedInput in grammar) {
-    //console.log('YES, SENT IN GRAMMAR')
-    if (grammar[cleanedInput].entities.includes(entity)) {
-      console.log("GRAMMAR:", grammar[cleanedInput].entities);
-      //console.log("TRUE");
-      return true;
+
+
+function checkResponse(response: object, grammar: { [key: string]: string[] }) {
+  let responseStr = JSON.stringify(response);
+  
+  const keys = ['affirmative', 'negative', 'next_step'];
+  for (const key of keys) {
+    const phrases = grammar[key];
+    for (const phrase of phrases) {
+      if (responseStr.toLowerCase().includes(phrase.toLowerCase())) {
+        console.log('phrase: ', phrase)
+        return key;
+      }
     }
   }
-  console.log("FALSE");
-  //console.log("GRAMMAR FALSE:", grammar[cleanedInput].entities)
-  return false;
-};
-
-
-const randomPhrase = ["yes", "here you go", "ok", "wowa", "great", "sure", "fantastic", "alright"];
-
-// getting a random index for picking a random phrase
-const getRandomIndex = (min: number, max: number) => { // min and max included 
-  return Math.floor(Math.random() * (max - min + 1) + min)
-}
-
-// getting a random phrase when delivering the required data, so it doesn't get too repetitive
-const getRandomPhrase = () => {
-  const index = randomPhrase[getRandomIndex(0, randomPhrase.length)]
-  return randomPhrase[getRandomIndex(0, randomPhrase.length)];
+  return null;
 }
 
 
-// machine
+
+//const test = checkResponse('Yes', grammar)
+//console.log('TEST: ', test)
+
+// machineS
 const dmMachine = createMachine(
   {
     id: "root",
@@ -171,18 +137,24 @@ const dmMachine = createMachine(
             ],
           },
           Ready: {
-            initial: "HowCanIHelp",
+            initial: "Greeting",
             states: {
+              Greeting: {
+                entry: "speak.greeting",
+                on: { SPEAK_COMPLETE: "HowCanIHelp" },
+              },
               HowCanIHelp: {
-                //entry: say("Hi, amigo! Tell me which chemical element you want to learn about and I will give you some info."),
-                entry: say("Hi, blablabla"),
+                entry: say("How can I help you?"),
+                //entry: say("Ah, ha, ha, ha, stayin' alive, stayin' alive. Ah, ha, ha, ha, stayin' alive"),
                 on: { SPEAK_COMPLETE: "Ask" },
               },
               Ask: {
                 entry: listen(),
                 on: {
                   RECOGNISED: {
-                    target: "AskChatGPT",
+                    //target: "Repeat",
+                    target: "Responsiveness",
+                    //target: "CPRKnowledge",
                     actions: [
                       ({ event }) => console.log(event),
                       assign({
@@ -192,260 +164,275 @@ const dmMachine = createMachine(
                   },
                 },
               },
-              AskChatGPT: {
-                invoke: {
-                  src: fromPromise(async({ input }) => {
-                    const gptData = await fetchFromChatGPT(input.lastResult[0].utterance + "The information should be in JSON format, including the following entities: element_JSON (the name of the chemical element), atomicNumber_JSON, atomicWeight_JSON, meltingPoint_JSON, boilingPoint_JSON, electronConfig_JSON and usage_JSON (what is this chemical element used for).", 150);
-                    return gptData;
-                  }),
-                  input: ({ context, event }) => ({
-                    lastResult: context.lastResult,
-                  }),
-                  onDone: {
-                    target: "SayBack",
+              Responsiveness: {
+                entry: say("Is the person conscious?"),
+                on: { SPEAK_COMPLETE: "SaveResponsiveness" },
+              },
+              SaveResponsiveness: {
+                entry: listen(),
+                on: {
+                  RECOGNISED: {
+                    target: "Breathing",
                     actions: [
-                      ({ event }) => console.log(JSON.parse(event.output)),
+                      ({ event }) => console.log(event),
                       assign({
-                        element_JSON: ({ event }) => JSON.parse(event.output).element_JSON,
-                        atomicNumber_JSON: ({ event }) => JSON.parse(event.output).atomicNumber_JSON,
-                        atomicWeight_JSON: ({ event }) => JSON.parse(event.output).atomicWeight_JSON,
-                        meltingPoint_JSON: ({ event }) => JSON.parse(event.output).meltingPoint_JSON,
-                        boilingPoint_JSON: ({ event }) => JSON.parse(event.output).boilingPoint_JSON,
-                        electronConfig_JSON: ({ event }) => JSON.parse(event.output).electronConfig_JSON,
-                        usage_JSON: ({ event }) => JSON.parse(event.output).usage_JSON,
+                        respCategory: ({ event }) => {
+                          const category = checkResponse(event.value, grammar);
+                          return category === 'affirmative' ? 'responsive' : 'irresponsive';
+                        },
+                        //responsiveness: ({ context }) => context.respCategory
                       }),
                     ],
                   },
                 },
               },
-              SayBack: {
-                entry: ({ context }) => {
-                  context.spstRef.send({
-                    type: "SPEAK",
-                    value: { utterance: `${getRandomPhrase()}! What do you want to know about ${context.element_JSON}?` }
-                  });
-                  console.log("Index: ", getRandomIndex(0, randomPhrase.length));
-                },
-                on: { SPEAK_COMPLETE: "Information" }
+              Breathing: {
+                entry: say("Is the person breathing?"),
+                on: { SPEAK_COMPLETE: "SaveBreathing" },
               },
-              Information: {
+              SaveBreathing: {
                 entry: listen(),
                 on: {
-                  RECOGNISED: [{
-                    target: "element",
-                    guard: ({ event }) => {
-                      //console.log('GUARD ELEMENT');
-                      return checkEntityInGrammar("element_entity", event.value[0].utterance);
-                    },
-                    actions: assign ({
-                      element: ({ event }) => checkEntityInGrammar("element_entity", event.value[0].utterance),
-                    }),
+                  RECOGNISED: {
+                    target: "CPRKnowledge",
+                    actions: [
+                      ({ event }) => console.log(event),
+                      assign({
+                        //breathCheck: ({ event }) => event.value,
+                        respCategory: ({ event }) => {
+                          const category = checkResponse(event.value, grammar);
+                          return category === 'affirmative' ? 'breathing' : 'not breathing';
+                          },
+                          //responsiveness: ({ context }) => context.respCategory
+                      }),
+                    ],
                   },
-                  {
-                    target: "atomicNumber",
-                    guard: ({ event }) => {
-                      //console.log('GUARD ATOMIC NUMBER');
-                      return checkEntityInGrammar("atomicNumber_entity", event.value[0].utterance);
-                    },
-                    actions: assign ({
-                      atomicNumber: ({ event }) => {
-                        //console.log("ACTIONS ATOMIC NUMBER");
-                        return checkEntityInGrammar("atomicNumber_entity", event.value[0].utterance);
-                      },
-                    }),
-                  },
-                  {
-                    target: "atomicWeight",
-                    guard: ({ event }) => {
-                      //console.log('GUARD ATOMIC WEIGHT');
-                      return checkEntityInGrammar("atomicWeight_entity", event.value[0].utterance);
-                    },
-                    actions: assign ({
-                      atomicWeight:  ({ event }) => {
-                        //console.log("ACTIONS ATOMIC WEIGHT");
-                        return checkEntityInGrammar("atomicWeight_entity", event.value[0].utterance);
-                      },
-                    }),
-                  },
-                  {
-                    target: "meltingPoint",
-                    guard: ({ event }) => {
-                      //console.log('GUARD MELTING POINT');
-                      return checkEntityInGrammar("meltingPoint_entity", event.value[0].utterance);
-                    },
-                    actions: assign ({
-                      meltingPoint:  ({ event }) => {
-                        //console.log("ACTIONS MELTING POINT");
-                        return checkEntityInGrammar("meltingPoint_entity", event.value[0].utterance);
-                      },
-                    }),
-                  },
-                  {
-                    target: "boilingPoint",
-                    guard: ({ event }) => {
-                      //console.log('GUARD BOILING POINT');
-                      return checkEntityInGrammar("boilingPoint_entity", event.value[0].utterance);
-                    },
-                    actions: assign ({
-                      boilingPoint:  ({ event }) => {
-                        //console.log("ACTIONS BOILING POINT");
-                        return checkEntityInGrammar("boilingPoint_entity", event.value[0].utterance);
-                      },
-                    }),
-                  },
-                  {
-                    target: "electronConfig",
-                    guard: ({ event }) => {
-                      //console.log('GUARD ELECTRON CONF');
-                      return checkEntityInGrammar("electronConfig_entity", event.value[0].utterance);
-                    },
-                    actions: assign ({
-                      electronConfig:  ({ event }) => {
-                        //console.log("ACTIONS ELECTRON CONF");
-                        return checkEntityInGrammar("electronConfig_entity", event.value[0].utterance);
-                      },
-                    }),
-                  },
-                  {
-                    target: "usage",
-                    guard: ({ event }) => {
-                      //console.log('GUARD USAGE');
-                      return checkEntityInGrammar("usage_entity", event.value[0].utterance);
-                    },
-                    actions: assign ({
-                      usage:  ({ event }) => {
-                        //console.log("ACTIONS USAGE");
-                        return checkEntityInGrammar("usage_entity", event.value[0].utterance);
-                      },
-                    }),
-                  },
-                ],
                 },
               },
-              element: {
-                entry: ({ context}) => { 
-                  context.spstRef.send({ 
-                    type: "SPEAK", 
-                    value:{ utterance: `${getRandomPhrase()}, the name of the chemical element is ${context.element_JSON}`}
-                  });
-                  console.log("Index: ", getRandomIndex(0, randomPhrase.length));
-                },
-                on: { SPEAK_COMPLETE: "moreQuestions" },
+              CPRKnowledge: {
+                entry: say("Do you have training in CPR?"),
+                on: { SPEAK_COMPLETE: "SaveCPRKnowledge" },
               },
-              atomicNumber: {
-                entry: ({ context}) => { 
-                  context.spstRef.send({ 
-                    type: "SPEAK", 
-                    value:{ utterance: `${getRandomPhrase()}, the atomic number is ${context.atomicNumber_JSON}`}
-                  });
-                  console.log("Index: ", getRandomIndex(0, randomPhrase.length));
-                },
-                on: { SPEAK_COMPLETE: "moreQuestions" },
-              },
-              atomicWeight: {
-                entry: ({ context}) => { 
-                  context.spstRef.send({ 
-                    type: "SPEAK", 
-                    value:{ utterance: `${getRandomPhrase()}, the atomic weight is ${context.atomicWeight_JSON}`}
-                  });
-                  console.log("Index: ", getRandomIndex(0, randomPhrase.length));
-                },
-                on: { SPEAK_COMPLETE: "moreQuestions" },
-              },
-              meltingPoint: {
-                entry: ({ context}) => { 
-                  context.spstRef.send({ 
-                    type: "SPEAK", 
-                    value:{ utterance: `${getRandomPhrase()}, the melting point is ${context.meltingPoint_JSON}ºC.`}
-                  });
-                  console.log("Index: ", getRandomIndex(0, randomPhrase.length));
-                },
-                on: { SPEAK_COMPLETE: "moreQuestions" },
-              },
-              boilingPoint: {
-                entry: ({ context}) => { 
-                  context.spstRef.send({ 
-                    type: "SPEAK", 
-                    value:{ utterance: `${getRandomPhrase()}, the boiling point is ${context.boilingPoint_JSON}ºC.`}
-                  });
-                  console.log("Index: ", getRandomIndex(0, randomPhrase.length));
-                },
-                on: { SPEAK_COMPLETE: "moreQuestions" },
-              },
-              electronConfig: {
-                entry: ({ context}) => { 
-                  context.spstRef.send({ 
-                    type: "SPEAK", 
-                    value:{ utterance: `${getRandomPhrase()}, the electron configuration is ${context.electronConfig_JSON}.`}
-                  });
-                  console.log("Index: ", getRandomIndex(0, randomPhrase.length));
-                },
-                on: { SPEAK_COMPLETE: "moreQuestions" },
-              },
-              usage: {
-                entry: ({ context}) => { 
-                  context.spstRef.send({ 
-                    type: "SPEAK", 
-                    value:{ utterance: `Well, ${context.usage_JSON}.`}
-                  });
-                  console.log("Index: ", getRandomIndex(0, randomPhrase.length));
-                },
-                on: { SPEAK_COMPLETE: "moreQuestions" },
-              },
-              moreQuestions: {
-                entry: ({ context}) => { 
-                  context.spstRef.send({ 
-                    type: "SPEAK", 
-                    value:{ utterance: `Anything else you want to know about ${context.element_JSON}? Say yes or no.`}
-                  });
-                },
-                on: { SPEAK_COMPLETE: "yesOrNo" },
-              },
-              yesOrNo: {
+              SaveCPRKnowledge: {
                 entry: listen(),
                 on: {
+                  RECOGNISED: {
+                    target: "AskChatGPT",
+                    actions: [
+                      ({ event }) => console.log(event),
+                      assign({
+                        //cprCheck: ({ event }) => event.value,
+                        respCategory: ({ event }) => {
+                          const category = checkResponse(event.value, grammar);
+                          return category === 'affirmative' ? 'advanced' : 'beginner';
+                          },
+                          //responsiveness: ({ context }) => context.respCategory
+                      }),
+                    ],
+                  },
+                },
+              },
+              AskChatGPT: {
+                invoke: {
+                  src: fromPromise(async({ input }) => {
+                    //const gptData = await fetchFromChatGPT(`I need you to give CPR instructions in JSON format within the following entities: step1_JSON, step2_JSON, step3_JSON and step4_JSON. You should take the following characteristics into account at the time of providing instructions. The victim is ${input.responsiveness} and ${input.breathing}. The user ${input.cpr_knowledge} previous CPR knowledge.`, 50);
+                    const gptData = await fetchFromChatGPT(`I need you to provide concise CPR instructions regarding making an emergency call, the surface where the victim is located, the placement of hands for performing CPR, compressions and rescue breaths. Before providing instructions you should know that the victim is an adult and the person's status is ${input.responsiveness} and ${input.breathing}. My level of experience with CPR is ${input.cpr_knowledge}, so the instructions should be more detailed for someone with no or little experience and just a reminder of the steps for a trained person. I need the instructions in JSON format, including the following entities: emergencyCall_JSON, firmSurface_JSON, placingFingers_JSON, startingCompressions_JSON and rescueBreaths_JSON. For example: "emergencyCall_JSON": "Call 911 or your local emergency number. If someone else is present, ask them to do this".`, 350);
+                    //const gptData = await fetchFromChatGPT(`I need you to provide concise CPR instructions regarding making an emergency call, the surface where the victim is located, the placement of hands for performing CPR, compressions and rescue breaths. Before providing instructions you should know that the victim is an adult and the person's status is not responsive and not breathing. My level of experience with CPR is ${input.cpr_knowledge}, so the instructions should be more detailed for someone with no or little experience and just a reminder of the steps for a trained person. I need the instructions in JSON format, including the following entities: emergencyCall_JSON, firmSurface_JSON, placingFingers_JSON, startingCompressions_JSON and rescueBreaths_JSON. For example: "emergencyCall_JSON": "Call 911 or your local emergency number. If someone else is present, ask them to do this".`, 350);
+                    //"I need you to provide concise CPR instructions for a {"victim_age"} who's state  is {"victim_responsive"}, knowing that my knowledge of CPR is {"user_cpr_knowledge"}. The information should be in JSON format, including the following entities: emergencyCall_JSON, firmSurface_JSON, placingFingers_JSON, startingCompressions_JSON, rescueBreaths_JSON and keepUp_JSON."
+                    return gptData;
+                  }),
+                  input: ({ context, event }) => ({
+                    responsiveness: context.responsiveness,
+                    breathing: context.breathing,
+                    cpr_knowledge: context.cpr_knowledge,
+                    lastResult: context.lastResult,
+                  }),
+                  onDone: {
+                    target: "emergencyCall", //Repeat
+                    actions: [
+                      ({ event }) => console.log(JSON.parse(event.output)),
+                      assign({ //emergencyCall_JSON, firmSurface_JSON, placingFingers_JSON, startingCompressions_JSON and rescueBreaths_JSON
+                        //emergencyCall_JSON: ({ event }) => JSON.parse(event.output).emergencyCall_JSON,
+                        emergencyCall_JSON: ({ event }) => ({
+                          instructions: JSON.parse(event.output).emergencyCall_JSON,
+                          mediaUrl: "https://media.giphy.com/media/3orieMQS2105J5Sn5K/giphy.gif"
+                        }),
+                        //firmSurface_JSON: ({ event }) => JSON.parse(event.output).firmSurface_JSON,
+                        firmSurface_JSON: ({ event }) => ({
+                          instruction: JSON.parse(event.output).firmSurface_JSON,
+                          mediaUrl: "https://media.giphy.com/media/xT5LMKKlg8MK5g24Wk/giphy.gif"
+                        }),
+                        placingFingers_JSON: ({ event }) => JSON.parse(event.output).placingFingers_JSON,
+                        //placingFingers_JSON: ({ event }) => ({
+                        //  instruction: JSON.parse(event.output).placingFingers_JSON,
+                        //  mediaUrl: "https://media.giphy.com/media/d07PtnTq0oVsk/giphy.gif"
+                        //}),
+                        startingCompressions_JSON: ({ event }) => JSON.parse(event.output).startingCompressions_JSON,
+                        //startingCompressions_JSON: ({ event }) => ({
+                        //  instruction: JSON.parse(event.output).startingCompressions_JSON,
+                        //  mediaUrl: "https://media.giphy.com/media/7gD76BxsSjxTLEJV1y/giphy.gif"
+                        //}),
+                        rescueBreaths_JSON: ({ event }) => JSON.parse(event.output).rescueBreaths_JSON,
+                        //rescueBreaths_JSON: ({ event }) => ({
+                        //  instruction: JSON.parse(event.output).rescueBreaths_JSON,
+                        //  mediaUrl: "https://media.giphy.com/media/26uf0Bl4inbl1ByAU/giphy.gif"
+                        //}),
+                      }),
+                    ],
+                  },
+                }, 
+              },
+              emergencyCall: {
+                entry: [
+                  ({ context}) => { 
+                    context.spstRef.send({ 
+                      type: "SPEAK", 
+                      value: { utterance: `Call 911 or your local emergency number. If someone else is present, ask them to do this. When you're ready for the next step, say "next" or "ready".` }
+                      //value:{ utterance: `Ok. ${context.emergencyCall_JSON.instruction} When you're ready for the next step, say "next" or "ready".`}
+                  });
+                },
+                ({ context }) => {
+                  const mediaElement = document.getElementById('instructionMedia');
+                  mediaElement.src = context.emergencyCall_JSON.mediaUrl;
+                  mediaElement.style.display = 'block';
+                }
+              ],
+                on: { SPEAK_COMPLETE: "Next" }, //Repeat
+              },
+              Next: {
+                entry: listen(),
+                on: { 
                   RECOGNISED: [
                     {
-                      target: "affirmative",
-                      guard: ({ event }) => checkEntityInGrammar("affirmative_entity", event.value[0].utterance),
+                      target: "firmSurface",
+                      //cond: ({ event }) => event.value.toLowerCase() === "next" || event.value.toLowerCase() === "ready",
+                      cond: ({ event }) => checkResponse(event.value, grammar) === 'next_step',
                     },
                     {
-                      target: "negative",
-                      guard: ({ event }) => checkEntityInGrammar("negative_entity", event.value[0].utterance),
+                      target: "RepeatStep",
+                    }
+                  ],
+                },
+              },
+              RepeatStep: {
+                entry: ({ context}) => { 
+                  context.spstRef.send({ 
+                    type: "SPEAK", 
+                    value:{ utterance: `Do you want me to repeat the step? Say "yes" or  "no"`}
+                  });
+                },
+                on: { SPEAK_COMPLETE: "RepYesOrNo" }, //Repeat
+              },
+              RepYesOrNo: {
+                entry: listen(),
+                on: { 
+                  RECOGNISED: [
+                    {
+                      target: "emergencyCall",
+                      cond: ({ event }) => event.value.toLowerCase() === "yes",
+                    },
+                    {
+                      target: "firmSurface",
+                      cond: ({ event }) => event.value.toLowerCase() === "no",
                     },
                   ],
                 },
               },
-              affirmative: {
+              //Wait10Seconds: {
+              //  after: {
+              //    10000: "firmSurface",
+              //  },
+              //},
+
+              //firmSurface: {
+              //  entry: ({ context}) => { 
+              //    context.spstRef.send({ 
+              //      type: "SPEAK", 
+              //      value:{ utterance: `Ok. ${context.firmSurface_JSON} When you're ready for the next step, say "next" or "ready".`}
+              //    });
+              //  },
+              //  on: { SPEAK_COMPLETE: "Repeat" }, //Repeat
+              //},
+              firmSurface: {
+                entry: [
+                ({ context}) => { 
+                  context.spstRef.send({ 
+                    type: "SPEAK", 
+                    value:{ utterance: `Ok. ${context.firmSurface_JSON.instruction} When you're ready for the next step, say "next" or "ready".`}
+                  });
+                },
+                ({ context }) => {
+                  const mediaElement = document.getElementById('instructionMedia');
+                  mediaElement.src = context.firmSurface_JSON.mediaUrl;
+                  mediaElement.style.display = 'block';
+                }
+              ],
+                on: { SPEAK_COMPLETE: "Next_2" }, //Repeat
+              },
+              Next_2: {
+                entry: listen(),
+                on: { 
+                  RECOGNISED: [
+                    {
+                      target: "placingFingers",
+                      cond: ({ event }) => event.value.toLowerCase() === "next" || event.value.toLowerCase() === "ready",
+                    },
+                    {
+                      target: "RepeatStep_2",
+                    }
+                  ],
+                },
+              },
+              RepeatStep_2: {
+                entry: ({ context}) => { 
+                  context.spstRef.send({ 
+                    type: "SPEAK", 
+                    value:{ utterance: `Do you want me to repeat the step? Say "yes" or  "no"`}
+                  });
+                },
+                on: { SPEAK_COMPLETE: "RepYesOrNo_2" }, //Repeat
+              },
+              RepYesOrNo_2: {
+                entry: listen(),
+                on: { 
+                  RECOGNISED: [
+                    {
+                      target: "firmSurface",
+                      cond: ({ event }) => event.value.toLowerCase() === "yes",
+                    },
+                    {
+                      target: "placingFingers",
+                      cond: ({ event }) => event.value.toLowerCase() === "no",
+                    },
+                  ],
+                },
+              },
+              placingFingers: {
+                entry: [
+                  ({ context}) => { 
+                    context.spstRef.send({ 
+                      type: "SPEAK", 
+                      value:{ utterance: `Now, ${context.placingFingers_JSON.instruction} When you're ready for the next step, say "next" or "ready".`}
+                    });
+                  },
+                  ({ context }) => {
+                    const mediaElement = document.getElementById('instructionMedia');
+                    mediaElement.src = context.placingFingers_JSON.mediaUrl;
+                    mediaElement.style.display = 'block';
+                  }
+                ],
+                  on: { SPEAK_COMPLETE: "Next_2" }, //Repeat
+              },
+              Repeat: {
                 entry: ({ context }) => {
                   context.spstRef.send({
                     type: "SPEAK",
-                    value: { utterance: `${getRandomPhrase()}, what else do you want to know?`}
-                  });
-                  console.log("Index: ", getRandomIndex(0, randomPhrase.length));
-                },
-                on: { SPEAK_COMPLETE: "Information" },
-              },
-              negative: {
-                entry: ({ context }) => {
-                  context.spstRef.send({
-                    type: "SPEAK",
-                    value: { utterance: `${getRandomPhrase()}, it was nice learning new stuff about ${context.element_JSON} with you!`}
-                  });
-                  console.log("Index: ", getRandomIndex(0, randomPhrase.length));
-                },
-                on: { SPEAK_COMPLETE: "byeBye" },
-              },
-              byeBye: {
-                entry: ({ context }) => {
-                  context.spstRef.send({
-                    type: "SPEAK",
-                    value: { utterance: `I hope your day is as bright as Neon, goodbye!`}
+                    value: { utterance: context.lastResult[0].utterance },
                   });
                 },
+                on: { SPEAK_COMPLETE: "Ask" },
               },
-              //It'd be nice to add a "canYouRepeat" state
-              //IdleEnd: {},
+              IdleEnd: {},
             },
           },
         },
@@ -478,12 +465,19 @@ const dmMachine = createMachine(
   },
   {
     // custom actions
+    //
     actions: {
       prepare: ({ context }) =>
         context.spstRef.send({
           type: "PREPARE",
         }),
       // saveLastResult:
+      "speak.greeting": ({ context }) => {
+        context.spstRef.send({
+          type: "SPEAK",
+          value: { utterance: "Hi!" },
+        });
+      },
       "speak.how-can-I-help": ({ context }) =>
         context.spstRef.send({
           type: "SPEAK",
